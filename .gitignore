@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 가상 환경
+venv/
+.venv/
+env/
+
+# 환경 변수 (API 키 포함)
+.env
+
+# 로그
+logs/
+*.log
+
+# 학습된 모델 (용량이 큰 파일)
+data/voice_models/*.pth
+data/voice_models/*.bin
+data/voice_models/*.ckpt
+
+# 전처리된 데이터
+data/voice_models/preprocessed/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# pytest 캐시
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
