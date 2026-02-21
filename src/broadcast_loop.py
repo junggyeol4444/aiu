@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import datetime, timezone
 from typing import Any
 
 from loguru import logger
@@ -47,6 +48,7 @@ class PerceptionEngine:
         """모든 인지 모듈을 시작합니다."""
         await self.chat_listener.start()
         await self.viewer_tracker.start()
+        self.context_builder.set_broadcast_started()
         logger.info("인지 엔진 시작 완료")
 
     async def stop(self) -> None:
@@ -120,6 +122,51 @@ class BroadcastLoop:
         self._broadcasting = False
         self._last_speech: str = ""
 
+        # 방송 모드 및 방종 상태
+        self._mode: str = settings.get("broadcast", {}).get("mode", "talk")
+        self._ending_mode: str = ""
+        self._broadcast_start_time: datetime | None = None
+
+        # 게임 모드 관련 모듈 (게임 설정이 있을 때만 초기화)
+        game_cfg = settings.get("game", {})
+        self._game_manager = None
+        self._game_perception = None
+        if game_cfg.get("enabled", False):
+            from src.game.game_manager import GameManager
+            from src.game.game_perception import GamePerception
+            self._game_manager = GameManager(game_cfg)
+            self._game_perception = GamePerception(game_cfg)
+            logger.info("게임 모드 모듈 초기화 완료")
+
+    @property
+    def current_mode(self) -> str:
+        """현재 방송 모드 ('talk' 또는 'game')를 반환합니다."""
+        return self._mode
+
+    def set_ending_mode(self, mode: str) -> None:
+        """
+        방종 모드를 설정합니다.
+
+        Args:
+            mode: "wind_down", "ending_announce", "final_goodbye" 중 하나
+        """
+        self._ending_mode = mode
+        self.perception.context_builder.ending_mode = mode
+        logger.info(f"방종 모드 설정: {mode}")
+
+    def set_broadcast_mode(self, mode: str, game_name: str = "") -> None:
+        """
+        방송 모드를 전환합니다 ('talk' 또는 'game').
+
+        Args:
+            mode: 새 방송 모드
+            game_name: 게임 방송 시 게임 이름
+        """
+        self._mode = mode
+        self.perception.context_builder.broadcast_mode = mode
+        self.perception.context_builder.game_name = game_name
+        logger.info(f"방송 모드 전환: {mode}" + (f" ({game_name})" if game_name else ""))
+
     async def initialize(self) -> None:
         """방송 시작 전 초기화를 수행합니다."""
         logger.info("AI 방송 시스템 초기화 중...")
@@ -146,6 +193,8 @@ class BroadcastLoop:
             return
 
         self._broadcasting = True
+        self._broadcast_start_time = datetime.now(timezone.utc)
+        self._ending_mode = ""
         await self.perception.start()
 
         # 방송 시작 이벤트 발생
@@ -167,11 +216,20 @@ class BroadcastLoop:
         메인 방송 루프.
 
         감지 → 판단 → 생성 → 발화 → 기억의 사이클을 반복합니다.
+        게임 모드일 때는 게임 상태도 컨텍스트에 포함합니다.
         """
         while self._broadcasting:
             try:
                 # 1. 감지: 지금 무슨 일이 벌어지고 있는가?
                 context = await self.perception.get_current_context()
+
+                # 게임 모드일 때 게임 컨텍스트 추가
+                if self._mode == "game" and self._game_perception and self._game_manager:
+                    game_ctx = await self._game_perception.get_game_context(
+                        self._game_manager.current_game,
+                        context.get("recent_chat", []),
+                    )
+                    context.update(game_ctx)
 
                 # 2. 판단: AI가 스스로 다음 행동을 결정
                 action = await self.brain.decide_action(context)
@@ -219,9 +277,16 @@ class BroadcastLoop:
         자연스러운 발화 간격을 계산합니다.
 
         채팅 활동이 활발하면 더 짧은 간격을, 조용하면 더 긴 간격을 사용합니다.
+        게임 모드일 때는 게임 설정의 발화 간격을 사용합니다.
         """
         recent_chats = context.get("recent_chat", [])
         events = context.get("events", [])
+
+        # 게임 모드에서는 게임별 발화 간격 사용
+        if self._mode == "game":
+            min_p = context.get("min_pause_seconds", self.min_pause)
+            max_p = context.get("max_pause_seconds", self.max_pause)
+            return random.uniform(min_p, max_p)
 
         if events:
             # 이벤트가 있으면 빠르게 반응

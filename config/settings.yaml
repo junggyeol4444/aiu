@@ -21,6 +21,7 @@ broadcast:
   max_pause_seconds: 5.0
   memory_window_size: 50      # 방송 루프에서 참조할 기억 창 크기
   context_update_interval: 2.0
+  mode: "talk"                # talk 또는 game
 
 memory:
   backend: "inmemory"
@@ -30,3 +31,24 @@ ui:
   host: "0.0.0.0"
   port: 7860
   share: false
+
+game:
+  enabled: false
+  # 게임 실행 방법: process (게임 실행) 또는 window (이미 실행된 창 캡처)
+  launch_method: "process"
+  games:
+    - name: "Minecraft"
+      process_name: "javaw.exe"
+      category_youtube: "Gaming"
+      category_twitch: "Minecraft"
+      launch_command: ""        # 비워두면 수동 실행
+    - name: "League of Legends"
+      process_name: "LeagueClient.exe"
+      category_youtube: "Gaming"
+      category_twitch: "League of Legends"
+      launch_command: ""
+  # 게임 중 발화 설정
+  speech:
+    min_pause_seconds: 3.0    # 게임 중엔 좀 더 긴 간격
+    max_pause_seconds: 10.0
+    reaction_keywords: ["kill", "death", "win", "lose", "목표", "클리어"]

@@ -30,6 +30,34 @@ class BasePlatformAdapter(ABC):
         """방송 정보를 반환합니다."""
         ...
 
+    async def update_stream_title(self, title: str) -> bool:
+        """
+        방송 제목을 업데이트합니다.
+        플랫폼에 따라 재정의합니다.
+
+        Args:
+            title: 새 방송 제목
+
+        Returns:
+            성공하면 True
+        """
+        logger.debug(f"[{self.__class__.__name__}] 제목 업데이트 미구현: {title}")
+        return False
+
+    async def update_stream_category(self, category: str) -> bool:
+        """
+        방송 카테고리/게임을 업데이트합니다.
+        플랫폼에 따라 재정의합니다.
+
+        Args:
+            category: 새 카테고리 또는 게임 이름
+
+        Returns:
+            성공하면 True
+        """
+        logger.debug(f"[{self.__class__.__name__}] 카테고리 업데이트 미구현: {category}")
+        return False
+
 
 class YouTubeAdapter(BasePlatformAdapter):
     """YouTube Live API 어댑터."""
@@ -68,6 +96,42 @@ class YouTubeAdapter(BasePlatformAdapter):
     async def get_stream_info(self) -> dict[str, Any]:
         """YouTube 방송 정보를 조회합니다."""
         return {"platform": "youtube", "channel_id": self.channel_id}
+
+    async def update_stream_title(self, title: str) -> bool:
+        """YouTube Data API v3의 liveBroadcasts.update를 사용하여 방송 제목을 업데이트합니다."""
+        try:
+            from googleapiclient.discovery import build  # type: ignore
+
+            service = build("youtube", "v3", developerKey=self.api_key)
+            # liveBroadcast id 조회 후 제목 업데이트
+            request = service.liveBroadcasts().list(
+                part="snippet",
+                broadcastStatus="active",
+            )
+            response = request.execute()
+            items = response.get("items", [])
+            if not items:
+                logger.warning("활성 YouTube 방송을 찾을 수 없습니다.")
+                return False
+
+            broadcast_id = items[0]["id"]
+            snippet = items[0]["snippet"]
+            snippet["title"] = title
+
+            service.liveBroadcasts().update(
+                part="snippet",
+                body={"id": broadcast_id, "snippet": snippet},
+            ).execute()
+            logger.info(f"[YouTube] 방송 제목 업데이트: {title}")
+            return True
+        except Exception as e:
+            logger.warning(f"YouTube 방송 제목 업데이트 실패: {e}")
+            return False
+
+    async def update_stream_category(self, category: str) -> bool:
+        """YouTube는 카테고리 API가 제한적이므로 제목에 카테고리를 포함합니다."""
+        logger.debug(f"[YouTube] 카테고리 업데이트 (제목 포함 방식): {category}")
+        return False
 
 
 class TwitchAdapter(BasePlatformAdapter):
@@ -108,6 +172,89 @@ class TwitchAdapter(BasePlatformAdapter):
     async def get_stream_info(self) -> dict[str, Any]:
         """Twitch 방송 정보를 조회합니다."""
         return {"platform": "twitch", "channel": self.channel}
+
+    async def update_stream_title(self, title: str) -> bool:
+        """Twitch API의 PATCH /channels를 사용하여 방송 제목을 업데이트합니다."""
+        try:
+            import aiohttp
+
+            # broadcaster_id 조회
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Client-Id": self.client_id,
+                "Content-Type": "application/json",
+            }
+            async with aiohttp.ClientSession() as session:
+                # 채널 정보 조회
+                users_url = f"https://api.twitch.tv/helix/users?login={self.channel}"
+                async with session.get(users_url, headers=headers) as resp:
+                    users_data = await resp.json()
+                    users = users_data.get("data", [])
+                    if not users:
+                        logger.warning("Twitch 사용자 정보를 찾을 수 없습니다.")
+                        return False
+                    broadcaster_id = users[0]["id"]
+
+                # 채널 정보 업데이트
+                patch_url = f"https://api.twitch.tv/helix/channels?broadcaster_id={broadcaster_id}"
+                async with session.patch(
+                    patch_url,
+                    headers=headers,
+                    json={"title": title},
+                ) as patch_resp:
+                    if patch_resp.status == 204:
+                        logger.info(f"[Twitch] 방송 제목 업데이트: {title}")
+                        return True
+                    logger.warning(f"Twitch 제목 업데이트 실패: {patch_resp.status}")
+                    return False
+        except Exception as e:
+            logger.warning(f"Twitch 방송 제목 업데이트 실패: {e}")
+            return False
+
+    async def update_stream_category(self, category: str) -> bool:
+        """Twitch API의 PATCH /channels를 사용하여 게임/카테고리를 업데이트합니다."""
+        try:
+            import aiohttp
+
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Client-Id": self.client_id,
+                "Content-Type": "application/json",
+            }
+            async with aiohttp.ClientSession() as session:
+                # 게임 ID 검색
+                games_url = f"https://api.twitch.tv/helix/games?name={category}"
+                async with session.get(games_url, headers=headers) as resp:
+                    games_data = await resp.json()
+                    games = games_data.get("data", [])
+                    if not games:
+                        logger.warning(f"Twitch 게임을 찾을 수 없습니다: {category}")
+                        return False
+                    game_id = games[0]["id"]
+
+                # 사용자 ID 조회
+                users_url = f"https://api.twitch.tv/helix/users?login={self.channel}"
+                async with session.get(users_url, headers=headers) as resp:
+                    users_data = await resp.json()
+                    users = users_data.get("data", [])
+                    if not users:
+                        return False
+                    broadcaster_id = users[0]["id"]
+
+                # 카테고리 업데이트
+                patch_url = f"https://api.twitch.tv/helix/channels?broadcaster_id={broadcaster_id}"
+                async with session.patch(
+                    patch_url,
+                    headers=headers,
+                    json={"game_id": game_id},
+                ) as patch_resp:
+                    if patch_resp.status == 204:
+                        logger.info(f"[Twitch] 카테고리 업데이트: {category}")
+                        return True
+                    return False
+        except Exception as e:
+            logger.warning(f"Twitch 카테고리 업데이트 실패: {e}")
+            return False
 
 
 class PlatformAdapterFactory:

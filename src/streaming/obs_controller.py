@@ -98,6 +98,18 @@ class OBSController:
             logger.error(f"장면 전환 오류: {e}")
             return False
 
+    async def switch_to_ending_scene(self, scene_name: str = "엔딩") -> bool:
+        """
+        방종 엔딩 화면으로 장면을 전환합니다.
+
+        Args:
+            scene_name: 엔딩 장면 이름 (기본값: "엔딩")
+
+        Returns:
+            성공 여부
+        """
+        return await self.switch_scene(scene_name)
+
     async def get_streaming_status(self) -> dict[str, Any]:
         """방송 상태를 조회합니다."""
         if not self._client:
