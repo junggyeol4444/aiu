@@ -1,15 +1,16 @@
 """
 core.py - 핵심 판단 엔진
-OpenAI GPT API와 연동하여 현재 상황에서 무슨 말을 할지 실시간으로 결정합니다.
+Ollama 로컬 LLM과 연동하여 현재 상황에서 무슨 말을 할지 실시간으로 결정합니다.
 스트리밍 응답을 지원합니다.
 """
 
 from __future__ import annotations
 
-import os
+import json
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 
+import aiohttp
 from loguru import logger
 
 from src.brain.action_decider import Action, ActionDecider, ActionType
@@ -18,7 +19,7 @@ from src.brain.persona import Persona
 
 
 class BrainCore:
-    """LLM과 연동하여 AI 방송인의 두뇌 역할을 수행하는 핵심 클래스."""
+    """Ollama 로컬 LLM과 연동하여 AI 방송인의 두뇌 역할을 수행하는 핵심 클래스."""
 
     def __init__(
         self,
@@ -37,28 +38,14 @@ class BrainCore:
         self.settings = settings
         self.action_decider = ActionDecider()
 
-        # OpenAI 클라이언트 초기화
-        self._client: Any = None
-        self._init_llm_client()
+        # Ollama 설정
+        ollama_url = self.settings.get("ollama_url", "http://localhost:11434")
+        self._ollama_chat_url = f"{ollama_url}/api/chat"
+        self._model = self.settings.get("model", "llama3")
+        logger.info(f"Ollama LLM 초기화 완료: {self._ollama_chat_url} (모델: {self._model})")
 
         # 반응 가이드 프롬프트 로드
         self._reaction_guide = self._load_reaction_guide()
-
-    def _init_llm_client(self) -> None:
-        """LLM 클라이언트를 초기화합니다."""
-        provider = self.settings.get("provider", "openai")
-        if provider == "openai":
-            try:
-                import openai  # type: ignore
-
-                api_key_env = self.settings.get("api_key_env", "OPENAI_API_KEY")
-                api_key = os.environ.get(api_key_env, "")
-                self._client = openai.AsyncOpenAI(api_key=api_key)
-                logger.info("OpenAI 클라이언트 초기화 완료")
-            except ImportError:
-                logger.error("openai 패키지가 설치되지 않았습니다: pip install openai")
-        else:
-            logger.warning(f"지원하지 않는 LLM 제공자: {provider}")
 
     @staticmethod
     def _load_reaction_guide() -> str:
@@ -95,22 +82,27 @@ class BrainCore:
 
         messages = self._build_messages(action, context)
 
-        if self._client is None:
-            logger.warning("LLM 클라이언트가 없어 기본 응답 반환")
-            return self._fallback_speech(action)
-
         try:
-            response = await self._client.chat.completions.create(
-                model=self.settings.get("model", "gpt-4"),
-                messages=messages,
-                temperature=self.settings.get("temperature", 0.8),
-                max_tokens=self.settings.get("max_tokens", 300),
-            )
-            text: str = response.choices[0].message.content or ""
-            logger.debug(f"생성된 발화: {text[:80]}...")
-            return text.strip()
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self._ollama_chat_url,
+                    json={
+                        "model": self._model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": {
+                            "temperature": self.settings.get("temperature", 0.8),
+                            "num_predict": self.settings.get("max_tokens", 300),
+                        },
+                    },
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as response:
+                    result = await response.json()
+                    text: str = result["message"]["content"]
+                    logger.debug(f"생성된 발화: {text[:80]}...")
+                    return text.strip()
         except Exception as e:
-            logger.error(f"LLM 호출 오류: {e}")
+            logger.error(f"Ollama LLM 호출 오류: {e}")
             return self._fallback_speech(action)
 
     async def generate_speech_stream(
@@ -128,26 +120,31 @@ class BrainCore:
         if action.action_type == ActionType.SILENCE:
             return
 
-        if self._client is None:
-            yield self._fallback_speech(action)
-            return
-
         messages = self._build_messages(action, context)
 
         try:
-            stream = await self._client.chat.completions.create(
-                model=self.settings.get("model", "gpt-4"),
-                messages=messages,
-                temperature=self.settings.get("temperature", 0.8),
-                max_tokens=self.settings.get("max_tokens", 300),
-                stream=True,
-            )
-            async for chunk in stream:
-                delta = chunk.choices[0].delta
-                if delta.content:
-                    yield delta.content
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self._ollama_chat_url,
+                    json={
+                        "model": self._model,
+                        "messages": messages,
+                        "stream": True,
+                        "options": {
+                            "temperature": self.settings.get("temperature", 0.8),
+                            "num_predict": self.settings.get("max_tokens", 300),
+                        },
+                    },
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as response:
+                    async for line in response.content:
+                        line = line.strip()
+                        if line:
+                            data = json.loads(line.decode("utf-8"))
+                            if not data.get("done", False):
+                                yield data["message"]["content"]
         except Exception as e:
-            logger.error(f"LLM 스트리밍 오류: {e}")
+            logger.error(f"Ollama LLM 스트리밍 오류: {e}")
             yield self._fallback_speech(action)
 
     # ── 내부 헬퍼 ────────────────────────────────────────────────────
@@ -157,7 +154,7 @@ class BrainCore:
         action: Action,
         context: dict[str, Any],
     ) -> list[dict[str, str]]:
-        """OpenAI API에 전달할 메시지 목록을 구성합니다."""
+        """Ollama API에 전달할 메시지 목록을 구성합니다."""
         system_prompt = self.persona.build_system_prompt()
         if self._reaction_guide:
             system_prompt += f"\n\n{self._reaction_guide}"
@@ -165,7 +162,7 @@ class BrainCore:
         messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
 
         # 최근 대화 히스토리 추가
-        messages.extend(self.memory.to_openai_messages())
+        messages.extend(self.memory.to_messages())
 
         # 현재 상황 컨텍스트를 사용자 메시지로 추가
         user_content = self._build_user_content(action, context)
@@ -180,13 +177,6 @@ class BrainCore:
         # 현재 상황 정보
         viewer_count = context.get("viewer_count", 0)
         parts.append(f"[현재 상황] 시청자 수: {viewer_count}명")
-
-        if context.get("weather"):
-            parts.append(f"날씨: {context['weather']}")
-
-        if context.get("trending_topics"):
-            topics = ", ".join(context["trending_topics"][:3])
-            parts.append(f"인기 트렌드: {topics}")
 
         # 행동 유형별 지시
         action_instruction = self._get_action_instruction(action)

@@ -24,10 +24,10 @@
 │  ┌──────────────┐    ┌──────────────┐    ┌───────────┐ │
 │  │  👁 인지엔진  │───▶│  🧠 AI 두뇌  │───▶│ 🎤 음성엔진│ │
 │  │              │    │              │    │           │ │
-│  │ • 채팅 수신  │    │ • GPT-4 연동 │    │ • XTTS v2 │ │
+│  │ • 채팅 수신  │    │ • Ollama LLM │    │ • XTTS v2 │ │
 │  │ • 시청자 추적│    │ • 행동 결정  │    │ • 실시간  │ │
 │  │ • 이벤트 감지│    │ • 발화 생성  │    │   TTS     │ │
-│  │ • 외부 정보  │    │ • 메모리 관리│    │ • 감정 제어│ │
+│  │ • 채팅/이벤트 │    │ • 메모리 관리│    │ • 감정 제어│ │
 │  └──────────────┘    └──────────────┘    └───────────┘ │
 │          │                  │                  │        │
 │          └──────────────────┴──────────────────┘        │
@@ -98,6 +98,23 @@ ai-autonomous-broadcaster/
 
 ## 🚀 설치 방법
 
+### Step 0: Ollama 설치 (필수)
+
+```bash
+# Ollama 설치
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 모델 다운로드 (택 1)
+ollama pull llama3          # 영어 위주, 범용
+ollama pull gemma2          # 구글 모델, 한국어 양호
+ollama pull qwen2.5         # 다국어 강함
+
+# 한국어 특화 모델 (추천)
+ollama pull eeve-korean-10.8b
+```
+
+사용할 모델을 `config/settings.yaml`의 `llm.model`에 설정하세요.
+
 ### 방법 1: Docker (권장)
 
 ```bash
@@ -109,7 +126,7 @@ cd ai-autonomous-broadcaster
 cp .env.example .env
 # .env 파일을 열어 API 키 등을 설정하세요
 
-# 3. Docker Compose로 실행
+# 3. Docker Compose로 실행 (Ollama 포함)
 docker-compose up --build
 ```
 
@@ -163,8 +180,9 @@ persona:
 
 ```yaml
 llm:
-  provider: "openai"
-  model: "gpt-4"
+  provider: "ollama"
+  model: "llama3"
+  ollama_url: "http://localhost:11434"
 
 streaming:
   platform: "youtube"
@@ -184,8 +202,8 @@ streaming:
 
 | 항목 | 설명 | 기본값 |
 |------|------|--------|
-| `llm.provider` | LLM 제공자 (`openai` / `local`) | `openai` |
-| `llm.model` | 사용할 GPT 모델 | `gpt-4` |
+| `llm.provider` | LLM 제공자 (`ollama`) | `ollama` |
+| `llm.model` | 사용할 Ollama 모델 | `llama3` |
 | `llm.temperature` | 창의성 수준 (0.0~1.0) | `0.8` |
 | `voice.engine` | TTS 엔진 (`xtts_v2`) | `xtts_v2` |
 | `broadcast.min_pause_seconds` | 최소 발화 간격 (초) | `1.0` |
@@ -211,12 +229,12 @@ streaming:
 | 분류 | 기술 |
 |------|------|
 | 언어 | Python 3.10+ |
-| LLM | OpenAI GPT-4 API |
+| LLM | Ollama 로컬 LLM (llama3, gemma2, qwen2.5 등) |
 | 음성 합성 | Coqui XTTS v2 |
 | 방송 제어 | OBS WebSocket |
 | UI | Gradio |
 | 비동기 처리 | asyncio |
-| 메모리 (선택) | Redis |
+| 메모리 | 인메모리 |
 | 컨테이너 | Docker + Docker Compose |
 
 ---
@@ -225,11 +243,10 @@ streaming:
 
 | 키 | 용도 | 획득 방법 |
 |----|------|----------|
-| `OPENAI_API_KEY` | GPT-4 LLM | [OpenAI Platform](https://platform.openai.com) |
 | `YOUTUBE_API_KEY` | YouTube Live Chat | [Google Cloud Console](https://console.cloud.google.com) |
 | `TWITCH_TOKEN` | Twitch IRC | [Twitch Developer](https://dev.twitch.tv) |
-| `WEATHER_API_KEY` | 날씨 정보 (선택) | [OpenWeatherMap](https://openweathermap.org) |
-| `NEWS_API_KEY` | 뉴스 정보 (선택) | [NewsAPI](https://newsapi.org) |
+
+> **참고:** Ollama는 로컬에서 실행되므로 API 키가 필요하지 않습니다.
 
 ---
 

@@ -1,8 +1,5 @@
 # AI 자율 방송 시스템 의존성
 
-# LLM / AI
-openai>=1.0.0
-
 # 음성 합성 (TTS / Voice Cloning)
 TTS>=0.22.0           # Coqui TTS (XTTS v2 포함)
 torch>=2.0.0
@@ -15,7 +12,7 @@ numpy>=1.24.0
 librosa>=0.10.0
 pydub>=0.25.1
 
-# 비동기 HTTP / WebSocket
+# 비동기 HTTP / WebSocket (Ollama API 호출 포함)
 aiohttp>=3.9.0
 websockets>=12.0
 
@@ -29,18 +26,12 @@ twitchio>=2.8.0
 google-api-python-client>=2.100.0
 google-auth>=2.23.0
 
-# 날씨 / 뉴스 API
-requests>=2.31.0
-
 # 설정 파일
 PyYAML>=6.0.1
 python-dotenv>=1.0.0
 
 # UI (대시보드)
 gradio>=4.0.0
-
-# Redis (옵션 - 메모리 영속성)
-redis>=5.0.0
 
 # 유틸리티
 pydantic>=2.0.0

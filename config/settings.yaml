@@ -1,7 +1,7 @@
 llm:
-  provider: "openai"          # openai 또는 local
-  model: "gpt-4"
-  api_key_env: "OPENAI_API_KEY"
+  provider: "ollama"              # ollama (로컬, 무료)
+  model: "llama3"                 # llama3, gemma2, eeve-korean-10.8b, qwen2.5 등
+  ollama_url: "http://localhost:11434"
   temperature: 0.8
   max_tokens: 300
 
@@ -19,17 +19,12 @@ streaming:
 broadcast:
   min_pause_seconds: 1.0
   max_pause_seconds: 5.0
-  memory_window_size: 50
+  memory_window_size: 50      # 방송 루프에서 참조할 기억 창 크기
   context_update_interval: 2.0
 
-external:
-  weather_api_key_env: "WEATHER_API_KEY"
-  news_api_key_env: "NEWS_API_KEY"
-  weather_city: "Seoul"
-
 memory:
-  backend: "inmemory"          # inmemory 또는 redis
-  redis_url_env: "REDIS_URL"
+  backend: "inmemory"
+  window_size: 50             # ConversationMemory deque 최대 크기
 
 ui:
   host: "0.0.0.0"
