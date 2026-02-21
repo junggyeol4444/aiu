@@ -16,9 +16,14 @@ services:
       - /dev/snd:/dev/snd
     restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    container_name: ai-broadcaster-redis
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai-broadcaster-ollama
     ports:
-      - "6379:6379"
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
     restart: unless-stopped
+
+volumes:
+  ollama_data:
