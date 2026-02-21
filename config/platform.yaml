@@ -1,0 +1,20 @@
+platform:
+  # 활성 플랫폼: youtube, twitch, afreecatv
+  active: "youtube"
+
+  youtube:
+    # YouTube Live Chat API 설정
+    api_key_env: "YOUTUBE_API_KEY"
+    channel_id_env: "YOUTUBE_CHANNEL_ID"
+    live_chat_id_env: "YOUTUBE_LIVE_CHAT_ID"
+    poll_interval_seconds: 2.0
+
+  twitch:
+    # Twitch IRC 설정
+    token_env: "TWITCH_TOKEN"
+    channel_env: "TWITCH_CHANNEL"
+    client_id_env: "TWITCH_CLIENT_ID"
+
+  afreecatv:
+    # 아프리카TV 설정 (추후 구현)
+    enabled: false
