@@ -46,66 +46,129 @@ class Dashboard:
         with gr.Blocks(title="AI 자율 방송 시스템", theme=gr.themes.Soft()) as demo:
             gr.Markdown("# 🤖 AI 자율 방송 시스템 대시보드")
 
-            with gr.Row():
-                # ── 방송 제어 패널 ───────────────────────────────────
-                with gr.Column(scale=1):
-                    gr.Markdown("## 📡 방송 제어")
-                    status_label = gr.Label(value="대기 중", label="방송 상태")
-                    start_btn = gr.Button("🔴 방송 시작", variant="primary")
-                    stop_btn = gr.Button("⏹ 방송 중지", variant="stop")
+            with gr.Tabs():
+                # ── 탭 1: 방송 제어 ──────────────────────────────────
+                with gr.TabItem("📡 방송 제어"):
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            gr.Markdown("## 📡 방송 제어")
+                            status_label = gr.Label(value="대기 중", label="방송 상태")
+                            mode_label = gr.Label(
+                                value=self.broadcast_loop.current_mode,
+                                label="현재 모드",
+                            )
+                            start_btn = gr.Button("🔴 방송 시작", variant="primary")
+                            stop_btn = gr.Button("⏹ 방송 중지", variant="stop")
 
-                    gr.Markdown("---")
-                    gr.Markdown("## 👁 실시간 현황")
-                    viewer_count = gr.Number(label="시청자 수", value=0, interactive=False)
-                    last_speech = gr.Textbox(label="마지막 발화", interactive=False, lines=2)
+                            gr.Markdown("---")
+                            # 모드 전환 버튼
+                            with gr.Row():
+                                talk_mode_btn = gr.Button("💬 토크 모드")
+                                game_mode_btn = gr.Button("🎮 게임 모드")
+                            mode_status = gr.Label(label="모드 전환")
 
-                # ── 페르소나 설정 패널 ───────────────────────────────
-                with gr.Column(scale=2):
-                    gr.Markdown("## 🎭 페르소나 설정")
-                    persona_name = gr.Textbox(
-                        label="이름",
-                        value=self.broadcast_loop.brain.persona.name,
+                            gr.Markdown("---")
+                            gr.Markdown("## 👁 실시간 현황")
+                            viewer_count = gr.Number(
+                                label="시청자 수", value=0, interactive=False
+                            )
+                            last_speech = gr.Textbox(
+                                label="마지막 발화", interactive=False, lines=2
+                            )
+
+                        # ── 페르소나 설정 패널 ───────────────────────
+                        with gr.Column(scale=2):
+                            gr.Markdown("## 🎭 페르소나 설정")
+                            persona_name = gr.Textbox(
+                                label="이름",
+                                value=self.broadcast_loop.brain.persona.name,
+                            )
+                            persona_personality = gr.Textbox(
+                                label="성격",
+                                value=self.broadcast_loop.brain.persona.personality,
+                                lines=2,
+                            )
+                            persona_mood = gr.Textbox(
+                                label="현재 기분",
+                                value=self.broadcast_loop.brain.persona.mood,
+                            )
+                            persona_update_btn = gr.Button("💾 페르소나 저장")
+                            persona_status = gr.Label(label="저장 상태")
+
+                    # ── 대화 히스토리 ─────────────────────────────────
+                    gr.Markdown("## 💬 대화 히스토리")
+                    history_display = gr.Dataframe(
+                        headers=["시간", "역할", "내용"],
+                        label="최근 대화",
+                        interactive=False,
                     )
-                    persona_personality = gr.Textbox(
-                        label="성격",
-                        value=self.broadcast_loop.brain.persona.personality,
-                        lines=2,
+                    refresh_btn = gr.Button("🔄 새로고침")
+
+                    # 이벤트 핸들러
+                    start_btn.click(fn=self._start_broadcast, outputs=[status_label])
+                    stop_btn.click(fn=self._stop_broadcast, outputs=[status_label])
+                    talk_mode_btn.click(
+                        fn=lambda: self._switch_mode("talk"),
+                        outputs=[mode_label, mode_status],
                     )
-                    persona_mood = gr.Textbox(
-                        label="현재 기분",
-                        value=self.broadcast_loop.brain.persona.mood,
+                    game_mode_btn.click(
+                        fn=lambda: self._switch_mode("game"),
+                        outputs=[mode_label, mode_status],
                     )
-                    persona_update_btn = gr.Button("💾 페르소나 저장")
-                    persona_status = gr.Label(label="저장 상태")
+                    persona_update_btn.click(
+                        fn=self._update_persona,
+                        inputs=[persona_name, persona_personality, persona_mood],
+                        outputs=[persona_status],
+                    )
+                    refresh_btn.click(
+                        fn=self._get_history,
+                        outputs=[history_display, viewer_count, last_speech],
+                    )
 
-            # ── 대화 히스토리 ────────────────────────────────────────
-            gr.Markdown("## 💬 대화 히스토리")
-            history_display = gr.Dataframe(
-                headers=["시간", "역할", "내용"],
-                label="최근 대화",
-                interactive=False,
-            )
-            refresh_btn = gr.Button("🔄 새로고침")
+                # ── 탭 2: 스케줄 ─────────────────────────────────────
+                with gr.TabItem("⏰ 스케줄"):
+                    gr.Markdown("## 📅 방송 스케줄")
+                    schedule_display = gr.Dataframe(
+                        headers=["요일", "시작 시간"],
+                        label="주간 방송 스케줄",
+                        interactive=False,
+                        value=self._get_schedule_rows(),
+                    )
+                    next_broadcast_label = gr.Label(
+                        label="다음 방송 시간",
+                        value=self._get_next_broadcast_str(),
+                    )
+                    schedule_refresh_btn = gr.Button("🔄 스케줄 새로고침")
+                    schedule_refresh_btn.click(
+                        fn=self._refresh_schedule,
+                        outputs=[schedule_display, next_broadcast_label],
+                    )
 
-            # ── 이벤트 핸들러 ────────────────────────────────────────
+                # ── 탭 3: 게임 설정 ──────────────────────────────────
+                with gr.TabItem("🎮 게임 설정"):
+                    gr.Markdown("## 🎮 게임 방송 설정")
+                    game_status = gr.Label(label="게임 상태", value=self._get_game_status())
+                    game_list_display = gr.Dataframe(
+                        headers=["게임 이름", "프로세스"],
+                        label="게임 목록",
+                        interactive=False,
+                        value=self._get_game_list_rows(),
+                    )
+                    game_name_input = gr.Textbox(label="게임 이름 (시작/종료)", placeholder="Minecraft")
+                    with gr.Row():
+                        start_game_btn = gr.Button("▶ 게임 시작")
+                        stop_game_btn = gr.Button("⏹ 게임 종료")
+                    game_action_status = gr.Label(label="게임 액션 결과")
 
-            start_btn.click(
-                fn=self._start_broadcast,
-                outputs=[status_label],
-            )
-            stop_btn.click(
-                fn=self._stop_broadcast,
-                outputs=[status_label],
-            )
-            persona_update_btn.click(
-                fn=self._update_persona,
-                inputs=[persona_name, persona_personality, persona_mood],
-                outputs=[persona_status],
-            )
-            refresh_btn.click(
-                fn=self._get_history,
-                outputs=[history_display, viewer_count, last_speech],
-            )
+                    start_game_btn.click(
+                        fn=self._start_game,
+                        inputs=[game_name_input],
+                        outputs=[game_status, game_action_status],
+                    )
+                    stop_game_btn.click(
+                        fn=self._stop_game,
+                        outputs=[game_status, game_action_status],
+                    )
 
         self._demo = demo
         return demo
@@ -183,3 +246,85 @@ class Dashboard:
                     break
 
         return rows, viewer_count, last_speech
+
+    def _switch_mode(self, mode: str) -> tuple[str, str]:
+        """방송 모드를 전환합니다."""
+        try:
+            self.broadcast_loop.set_broadcast_mode(mode)
+            mode_label = "💬 토크 방송" if mode == "talk" else "🎮 게임 방송"
+            return mode_label, f"✅ {mode_label} 모드로 전환됨"
+        except Exception as e:
+            logger.error(f"모드 전환 오류: {e}")
+            return mode, f"❌ 오류: {e}"
+
+    def _get_schedule_rows(self) -> list[list[str]]:
+        """스케줄 정보를 Dataframe 형식으로 반환합니다."""
+        try:
+            from src.scheduler import BroadcastScheduler
+            scheduler = BroadcastScheduler(self.broadcast_loop)
+            return [
+                [entry.get("day", ""), entry.get("time", "")]
+                for entry in scheduler.get_schedule_summary()
+            ]
+        except Exception as e:
+            logger.warning(f"스케줄 조회 오류: {e}")
+            return []
+
+    def _get_next_broadcast_str(self) -> str:
+        """다음 방송 시간 문자열을 반환합니다."""
+        try:
+            from src.scheduler import BroadcastScheduler
+            scheduler = BroadcastScheduler(self.broadcast_loop)
+            next_time = scheduler.get_next_broadcast_time()
+            if next_time:
+                return next_time.strftime("%Y-%m-%d %H:%M")
+            return "스케줄 없음"
+        except Exception as e:
+            logger.warning(f"다음 방송 시간 조회 오류: {e}")
+            return "조회 실패"
+
+    def _refresh_schedule(self) -> tuple[list[list[str]], str]:
+        """스케줄 정보를 새로고침합니다."""
+        return self._get_schedule_rows(), self._get_next_broadcast_str()
+
+    def _get_game_status(self) -> str:
+        """현재 게임 상태를 반환합니다."""
+        gm = self.broadcast_loop._game_manager
+        if gm is None:
+            return "게임 모드 비활성화"
+        game = gm.current_game
+        if game:
+            return f"🎮 실행 중: {game.get('name', '')}"
+        return "대기 중"
+
+    def _get_game_list_rows(self) -> list[list[str]]:
+        """게임 목록을 Dataframe 형식으로 반환합니다."""
+        gm = self.broadcast_loop._game_manager
+        if gm is None:
+            return []
+        return [
+            [g.get("name", ""), g.get("process_name", "")]
+            for g in gm.games
+        ]
+
+    def _start_game(self, game_name: str) -> tuple[str, str]:
+        """게임을 시작합니다."""
+        gm = self.broadcast_loop._game_manager
+        if gm is None:
+            return "게임 모드 비활성화", "❌ 게임 모드가 활성화되어 있지 않습니다."
+        if not game_name.strip():
+            return self._get_game_status(), "❌ 게임 이름을 입력하세요."
+        success = gm.start_game(game_name.strip())
+        if success:
+            self.broadcast_loop.set_broadcast_mode("game", game_name.strip())
+            return self._get_game_status(), f"✅ {game_name} 시작됨"
+        return self._get_game_status(), f"❌ {game_name} 시작 실패"
+
+    def _stop_game(self) -> tuple[str, str]:
+        """게임을 종료합니다."""
+        gm = self.broadcast_loop._game_manager
+        if gm is None:
+            return "게임 모드 비활성화", "❌ 게임 모드가 활성화되어 있지 않습니다."
+        gm.stop_game()
+        self.broadcast_loop.set_broadcast_mode("talk")
+        return self._get_game_status(), "✅ 게임 종료됨. 토크 모드로 전환"

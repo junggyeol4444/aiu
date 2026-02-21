@@ -1,0 +1,32 @@
+schedule:
+  enabled: true
+  # 방송 시작 시간 (24시간 형식)
+  start_times:
+    - day: "monday"
+      time: "20:00"
+    - day: "tuesday"
+      time: "20:00"
+    - day: "wednesday"
+      time: "20:00"
+    - day: "thursday"
+      time: "20:00"
+    - day: "friday"
+      time: "21:00"
+    - day: "saturday"
+      time: "14:00"
+    - day: "sunday"
+      time: "14:00"
+
+  # 방송 시간 설정 (분 단위)
+  broadcast_duration:
+    min_minutes: 360    # 최소 6시간
+    max_minutes: 420    # 최대 7시간
+
+  # 방종 설정
+  ending:
+    # 방종 준비 시작 (종료 예정 시간 몇 분 전부터)
+    wind_down_minutes: 15
+    # 방종 멘트 후 실제 종료까지 대기 (초)
+    final_goodbye_seconds: 30
+
+  timezone: "Asia/Seoul"

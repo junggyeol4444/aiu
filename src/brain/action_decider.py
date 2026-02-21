@@ -16,16 +16,27 @@ from loguru import logger
 class ActionType(str, Enum):
     """AI가 선택할 수 있는 행동 유형."""
 
-    FREE_TALK = "free_talk"           # 자유 토크 (혼잣말, 잡담)
-    CHAT_REPLY = "chat_reply"         # 채팅 반응 (특정 시청자에게 답변)
-    TOPIC_CHANGE = "topic_change"     # 주제 전환
-    REACTION = "reaction"             # 리액션 (웃기, 놀라기)
-    ASK_VIEWERS = "ask_viewers"       # 시청자에게 질문 던지기
-    ANNOUNCEMENT = "announcement"     # 공지/알림
-    SILENCE = "silence"               # 자연스러운 침묵/쉼
-    GREETING = "greeting"             # 인사 (환영, 퇴장)
-    DONATION_REACT = "donation_react" # 후원 반응
-    SUBSCRIBE_REACT = "subscribe_react"  # 구독/팔로우 반응
+    FREE_TALK = "free_talk"                  # 자유 토크 (혼잣말, 잡담)
+    CHAT_REPLY = "chat_reply"                # 채팅 반응 (특정 시청자에게 답변)
+    TOPIC_CHANGE = "topic_change"            # 주제 전환
+    REACTION = "reaction"                    # 리액션 (웃기, 놀라기)
+    ASK_VIEWERS = "ask_viewers"              # 시청자에게 질문 던지기
+    ANNOUNCEMENT = "announcement"            # 공지/알림
+    SILENCE = "silence"                      # 자연스러운 침묵/쉼
+    GREETING = "greeting"                    # 인사 (환영, 퇴장)
+    DONATION_REACT = "donation_react"        # 후원 반응
+    SUBSCRIBE_REACT = "subscribe_react"      # 구독/팔로우 반응
+
+    # 방종 관련 행동
+    WIND_DOWN = "wind_down"                  # 마무리 분위기 전환 (종료 15분 전)
+    ENDING_ANNOUNCE = "ending_announce"      # 방종 예고 (종료 5분 전)
+    FINAL_GOODBYE = "final_goodbye"          # 최종 인사 및 종료
+
+    # 게임 방송 관련 행동
+    GAME_REACTION = "game_reaction"          # 게임 플레이 중 리액션
+    GAME_COMMENTARY = "game_commentary"      # 게임 상황 설명/실況
+    GAME_CHAT_REPLY = "game_chat_reply"      # 게임 중 채팅 반응
+    GAME_STRATEGY = "game_strategy"          # 전략/계획 얘기
 
 
 @dataclass
@@ -52,6 +63,15 @@ class ActionDecider:
         ActionType.SILENCE: 0.10,
     }
 
+    # 게임 방송 모드일 때 행동 가중치
+    _GAME_MODE_WEIGHTS: dict[ActionType, float] = {
+        ActionType.GAME_REACTION: 0.35,
+        ActionType.GAME_COMMENTARY: 0.30,
+        ActionType.GAME_STRATEGY: 0.15,
+        ActionType.SILENCE: 0.10,
+        ActionType.FREE_TALK: 0.10,
+    }
+
     def decide(self, context: dict[str, Any]) -> Action:
         """
         컨텍스트를 분석하여 다음 행동을 결정합니다.
@@ -62,24 +82,39 @@ class ActionDecider:
         Returns:
             결정된 Action 객체
         """
+        broadcast_mode = context.get("broadcast_mode", "talk")
+        ending_mode = context.get("ending_mode", "")
+
+        # 방종 모드일 때 방종 관련 행동 우선 선택
+        if ending_mode:
+            return self._decide_ending_action(ending_mode)
+
         # 1. 고우선순위 이벤트 우선 처리
         action = self._check_high_priority_events(context)
         if action:
             logger.debug(f"고우선순위 이벤트 행동 결정: {action.action_type}")
             return action
 
-        # 2. 채팅 메시지가 있으면 답변 우선
+        # 2. 게임 모드일 때 채팅은 GAME_CHAT_REPLY로 처리
         recent_chats = context.get("recent_chat", [])
         if recent_chats:
             latest_chat = recent_chats[-1]
-            action = Action(
-                action_type=ActionType.CHAT_REPLY,
-                priority=5,
-                target_user=latest_chat.get("username"),
-                trigger_message=latest_chat.get("message"),
-            )
-            logger.debug(f"채팅 반응 결정: {action.target_user}")
-            return action
+            if broadcast_mode == "game":
+                return Action(
+                    action_type=ActionType.GAME_CHAT_REPLY,
+                    priority=5,
+                    target_user=latest_chat.get("username"),
+                    trigger_message=latest_chat.get("message"),
+                )
+            else:
+                action = Action(
+                    action_type=ActionType.CHAT_REPLY,
+                    priority=5,
+                    target_user=latest_chat.get("username"),
+                    trigger_message=latest_chat.get("message"),
+                )
+                logger.debug(f"채팅 반응 결정: {action.target_user}")
+                return action
 
         # 3. 특별 상황이 없으면 가중치 기반 랜덤 선택
         return self._weighted_random_action(context)
@@ -112,16 +147,42 @@ class ActionDecider:
 
         return None
 
+    def _decide_ending_action(self, ending_mode: str) -> Action:
+        """
+        방종 모드에 따른 방종 행동을 반환합니다.
+
+        Args:
+            ending_mode: "wind_down", "ending_announce", "final_goodbye" 중 하나
+
+        Returns:
+            방종 관련 Action
+        """
+        action_map = {
+            "wind_down": ActionType.WIND_DOWN,
+            "ending_announce": ActionType.ENDING_ANNOUNCE,
+            "final_goodbye": ActionType.FINAL_GOODBYE,
+        }
+        action_type = action_map.get(ending_mode, ActionType.WIND_DOWN)
+        logger.debug(f"방종 행동 결정: {action_type}")
+        return Action(action_type=action_type, priority=10)
+
     def _weighted_random_action(self, context: dict[str, Any]) -> Action:
         """가중치 기반으로 랜덤하게 행동을 선택합니다."""
-        weights = dict(self._DEFAULT_WEIGHTS)
+        broadcast_mode = context.get("broadcast_mode", "talk")
 
-        # 시청자 수에 따라 가중치 조정
-        viewer_count = context.get("viewer_count", 0)
-        if viewer_count == 0:
-            # 시청자가 없으면 자유 토크 비중 높임
-            weights[ActionType.FREE_TALK] = 0.60
-            weights[ActionType.SILENCE] = 0.20
+        # 게임 모드일 때 게임 행동 가중치 사용
+        if broadcast_mode == "game":
+            weights = dict(self._GAME_MODE_WEIGHTS)
+        else:
+            weights = dict(self._DEFAULT_WEIGHTS)
+
+        # 시청자 수에 따라 가중치 조정 (토크 모드만)
+        if broadcast_mode != "game":
+            viewer_count = context.get("viewer_count", 0)
+            if viewer_count == 0:
+                # 시청자가 없으면 자유 토크 비중 높임
+                weights[ActionType.FREE_TALK] = 0.60
+                weights[ActionType.SILENCE] = 0.20
 
         action_types = list(weights.keys())
         weight_values = [weights[a] for a in action_types]

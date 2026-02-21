@@ -46,11 +46,21 @@ class BrainCore:
 
         # 반응 가이드 프롬프트 로드
         self._reaction_guide = self._load_reaction_guide()
+        self._game_mode_guide = self._load_game_mode_guide()
 
     @staticmethod
     def _load_reaction_guide() -> str:
         """상황별 반응 가이드 파일을 로드합니다."""
         path = Path("src/brain/prompts/reaction.txt")
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+        return ""
+
+    @staticmethod
+    def _load_game_mode_guide() -> str:
+        """게임 방송 모드 반응 가이드 파일을 로드합니다."""
+        path = Path("src/brain/prompts/game_mode.txt")
         if path.exists():
             with open(path, "r", encoding="utf-8") as f:
                 return f.read()
@@ -155,8 +165,14 @@ class BrainCore:
         context: dict[str, Any],
     ) -> list[dict[str, str]]:
         """Ollama API에 전달할 메시지 목록을 구성합니다."""
+        broadcast_mode = context.get("broadcast_mode", "talk")
+
         system_prompt = self.persona.build_system_prompt()
-        if self._reaction_guide:
+
+        # 방송 모드에 따라 가이드 프롬프트 추가
+        if broadcast_mode == "game" and self._game_mode_guide:
+            system_prompt += f"\n\n{self._game_mode_guide}"
+        elif self._reaction_guide:
             system_prompt += f"\n\n{self._reaction_guide}"
 
         messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -177,6 +193,43 @@ class BrainCore:
         # 현재 상황 정보
         viewer_count = context.get("viewer_count", 0)
         parts.append(f"[현재 상황] 시청자 수: {viewer_count}명")
+
+        # 방송 경과 시간
+        elapsed = context.get("elapsed_time", "")
+        if elapsed:
+            parts.append(f"[방송 경과] {elapsed}")
+
+        # 현재 모드
+        broadcast_mode = context.get("broadcast_mode", "talk")
+        game_name = context.get("game_name", "")
+        if broadcast_mode == "game" and game_name:
+            parts.append(f"[모드] 게임 방송 ({game_name})")
+        else:
+            parts.append(f"[모드] 토크 방송")
+
+        # 방종 상태
+        ending_mode = context.get("ending_mode", "")
+        if ending_mode:
+            parts.append("[상태] 마무리 중")
+
+        # 최근 채팅 (최근 10개 전체 전달)
+        recent_chats = context.get("recent_chat", [])
+        if recent_chats:
+            chat_lines = [
+                f"{c.get('username', '익명')}: {c.get('message', '')}"
+                for c in recent_chats[-10:]
+            ]
+            parts.append(f"[채팅] {', '.join(chat_lines)}")
+
+        # 게임 상태 (게임 모드일 때)
+        game_events = context.get("game_events", [])
+        if game_events:
+            event_descs = [e.get("type", "") for e in game_events[:3]]
+            parts.append(f"[게임 이벤트] {', '.join(event_descs)}")
+
+        # 이전 발화 (중복 방지)
+        if action.trigger_message:
+            parts.append(f"[트리거] {action.trigger_message}")
 
         # 행동 유형별 지시
         action_instruction = self._get_action_instruction(action)
@@ -199,6 +252,34 @@ class BrainCore:
             ActionType.GREETING: "시청자들에게 따뜻하게 인사해주세요.",
             ActionType.DONATION_REACT: "후원에 진심으로 감사를 표현해주세요.",
             ActionType.SUBSCRIBE_REACT: f"'{action.target_user}'님의 구독/팔로우를 환영해주세요.",
+            # 방종 관련 지시
+            ActionType.WIND_DOWN: (
+                "슬슬 방송 마무리 분위기로 전환해주세요. "
+                "새 주제를 시작하지 말고, 오늘 방송 돌아보면서 자연스럽게 마무리 해주세요."
+            ),
+            ActionType.ENDING_ANNOUNCE: (
+                "시청자들에게 오늘 방송 마무리한다고 자연스럽게 알려주세요. "
+                "감사 인사와 다음 방송 예고를 해주세요."
+            ),
+            ActionType.FINAL_GOODBYE: (
+                "마지막 인사를 해주세요. "
+                "따뜻하고 아쉬운 느낌으로 작별 인사를 해주세요."
+            ),
+            # 게임 방송 관련 지시
+            ActionType.GAME_REACTION: (
+                "게임 플레이 중 자연스러운 리액션을 해주세요. "
+                "예: 적을 잡으면 환호, 죽으면 아쉬워하거나 웃으면서 넘기기."
+            ),
+            ActionType.GAME_COMMENTARY: (
+                "지금 게임에서 하고 있는 것을 시청자에게 자연스럽게 설명해주세요."
+            ),
+            ActionType.GAME_CHAT_REPLY: (
+                f"시청자 '{action.target_user}'의 채팅 '{action.trigger_message}'에 "
+                "게임 플레이 중 자연스럽게 답변해주세요."
+            ),
+            ActionType.GAME_STRATEGY: (
+                "앞으로의 게임 전략이나 계획을 시청자에게 설명해주세요."
+            ),
         }
         return instructions.get(action.action_type, "자연스럽게 이야기해주세요.")
 
@@ -211,5 +292,11 @@ class BrainCore:
             ActionType.DONATION_REACT: "후원 감사합니다! 정말 감동이에요~",
             ActionType.SUBSCRIBE_REACT: "구독해주셔서 진심으로 감사합니다!",
             ActionType.ASK_VIEWERS: "여러분은 오늘 어떻게 지내고 있나요?",
+            ActionType.WIND_DOWN: "오늘 방송 재밌었는데 시간이 벌써 이렇게 됐네...",
+            ActionType.ENDING_ANNOUNCE: "여러분 오늘 진짜 재밌었어요~ 슬슬 마무리할게요!",
+            ActionType.FINAL_GOODBYE: "그럼 다들 좋은 밤 보내세요~ 다음에 또 만나요!",
+            ActionType.GAME_REACTION: "오, 이거 진짜 긴장되네!",
+            ActionType.GAME_COMMENTARY: "지금 열심히 플레이 중이에요~",
+            ActionType.GAME_STRATEGY: "다음엔 이 전략을 써봐야겠어요.",
         }
         return fallbacks.get(action.action_type, "잠깐, 뭔가 생각 중이에요!")
